@@ -82,7 +82,8 @@ Seluruh respons API dibungkus dalam format standar seragam:
 | **200** | OK | Permintaan berhasil diproses. |
 | **201** | Created | Data baru berhasil dibuat ke sistem. |
 | **400** | Bad Request | Parameter request tidak valid atau melebihi kuota konfigurasi. |
-| **401** | Unauthorized | Token JWT tidak disertakan, kadaluarsa, atau kredensial salah. |
+| **401** | Unauthorized | Token JWT tidak disertakan, tidak valid/rusak, kadaluarsa, atau kredensial login salah. Dikembalikan dalam format seragam JSON `ApiResponse`. |
+| **403** | Forbidden | Akses ditolak karena kredensial tidak memiliki wewenang atau hak akses yang mencukupi. Dikembalikan dalam format seragam JSON `ApiResponse`. |
 | **404** | Not Found | Entitas atau data yang dicari tidak ditemukan. |
 | **409** | Conflict | Terjadi duplikasi data unik (misal toko sudah ada di whitelist). |
 | **500** | Internal Server Error | Terjadi kendala tidak terduga pada server/database. |
@@ -171,10 +172,11 @@ Authorization: Bearer <TOKEN>
 | `province` | NO | String | Nama provinsi yang dicari (contoh: `Jawa Barat`, case-insensitive) |
 | `page` | NO | Integer | Nomor halaman dimulai dari indeks `0` (default: `0`) |
 | `size` | NO | Integer | Jumlah data per halaman (default: `20`, maksimum: `100`) |
+| `sortDirection` | NO | String | Arah pengurutan berdasarkan tanggal pembuatan (`createdAt`): `asc` (terlama) atau `desc` (terbaru) (default: `desc`) |
 
 #### Request Example:
 ```http
-GET /api/stores/search?province=Jawa%20Barat&page=0&size=10 HTTP/1.1
+GET /api/stores/search?province=Jawa%20Barat&page=0&size=10&sortDirection=desc HTTP/1.1
 Host: localhost:8080
 Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
 ```
@@ -194,6 +196,7 @@ Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
         "branchName": "Cabang Surabaya",
         "provinceId": 2,
         "provinceName": "Jawa Timur",
+        "createdAt": "2026-09-06T10:00:00",
         "whitelisted": true
       },
       {
@@ -204,6 +207,7 @@ Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
         "branchName": "Cabang Bandung",
         "provinceId": 1,
         "provinceName": "Jawa Barat",
+        "createdAt": "2026-09-06T09:00:00",
         "whitelisted": false
       },
       {
@@ -214,6 +218,7 @@ Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
         "branchName": "Cabang Bandung",
         "provinceId": 1,
         "provinceName": "Jawa Barat",
+        "createdAt": "2026-09-06T08:00:00",
         "whitelisted": false
       }
     ],
@@ -259,6 +264,7 @@ Authorization: Bearer <TOKEN>
     "branchName": "Cabang Bandung",
     "provinceId": 1,
     "provinceName": "Jawa Barat",
+    "createdAt": "2026-09-06T09:00:00",
     "whitelisted": false
   },
   "timestamp": "2026-09-06T10:00:00.000"
@@ -280,7 +286,7 @@ Authorization: Bearer <TOKEN>
 ## 5. Branch Management
 
 ### 5.1 List All Active Branches
-Mengambil seluruh daftar cabang yang berstatus aktif (`is_active = true`).
+Mengambil seluruh daftar cabang yang berstatus aktif (`is_active = true`). Dapat diurutkan berdasarkan tanggal pembuatan (`createdAt`).
 
 **Method:** `GET`  
 **Endpoint:** `/api/branches`  
@@ -291,27 +297,41 @@ Mengambil seluruh daftar cabang yang berstatus aktif (`is_active = true`).
 Authorization: Bearer <TOKEN>
 ```
 
+#### Field Description (Query Parameters):
+| Field | Mandatory | Type | Description |
+| :--- | :--- | :--- | :--- |
+| `sortDirection` | NO | String | Urutan berdasarkan waktu pembuatan (`createdAt`): `asc` (terlama) atau `desc` (terbaru) (default: `asc`) |
+
+#### Request Example:
+```http
+GET /api/branches?sortDirection=desc HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
+```
+
 #### Success Response (200 OK):
 ```json
 {
   "success": true,
-  "message": "Berhasil mengambil data cabang",
+  "message": "Daftar cabang aktif",
   "data": [
-    {
-      "id": 1,
-      "name": "Cabang Bandung",
-      "address": "Jl. Soekarno Hatta No. 200, Bandung",
-      "provinceId": 1,
-      "provinceName": "Jawa Barat",
-      "isActive": true
-    },
     {
       "id": 2,
       "name": "Cabang Bekasi",
       "address": "Jl. Ahmad Yani No. 10, Bekasi",
       "provinceId": 1,
       "provinceName": "Jawa Barat",
-      "isActive": true
+      "isActive": true,
+      "createdAt": "2026-09-06T09:30:00"
+    },
+    {
+      "id": 1,
+      "name": "Cabang Bandung",
+      "address": "Jl. Soekarno Hatta No. 200, Bandung",
+      "provinceId": 1,
+      "provinceName": "Jawa Barat",
+      "isActive": true,
+      "createdAt": "2026-09-06T08:30:00"
     }
   ],
   "timestamp": "2026-09-06T10:00:00.000"
@@ -360,7 +380,8 @@ Content-Type: application/json
     "address": "Jl. Pemuda No. 45, Semarang",
     "provinceId": 3,
     "provinceName": "Jawa Tengah",
-    "isActive": true
+    "isActive": true,
+    "createdAt": "2026-09-06T10:00:00"
   },
   "timestamp": "2026-09-06T10:00:00.000"
 }
@@ -408,7 +429,8 @@ Content-Type: application/json
     "address": "Jl. Soekarno Hatta No. 200, Bandung Gedung Baru",
     "provinceId": 1,
     "provinceName": "Jawa Barat",
-    "isActive": true
+    "isActive": true,
+    "createdAt": "2026-09-06T08:30:00"
   },
   "timestamp": "2026-09-06T10:00:00.000"
 }

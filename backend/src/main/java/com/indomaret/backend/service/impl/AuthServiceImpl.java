@@ -24,7 +24,6 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public LoginResponse login(LoginRequest request) {
-        // Validasi username dan password menggunakan AuthenticationManager Spring Security
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
         );
@@ -36,7 +35,6 @@ public class AuthServiceImpl implements AuthService {
                 .map(r -> r.replace("ROLE_", ""))
                 .orElse("STAFF");
 
-        // Generate JWT Token
         String token = jwtUtil.generateToken(username, role);
 
         return LoginResponse.builder()

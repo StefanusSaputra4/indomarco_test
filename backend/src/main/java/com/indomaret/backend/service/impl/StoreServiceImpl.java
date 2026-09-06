@@ -39,7 +39,6 @@ public class StoreServiceImpl implements StoreService {
         Page<Store> storePage = storeRepository.searchByProvinceName(query, pageable);
         List<WhitelistStore> activeWhitelists = new ArrayList<>(whitelistStoreRepository.findAllActiveWithDetails());
 
-        // Urutkan toko whitelist sesuai arah sort yang diminta (default created date)
         if (pageable.getSort() != null && pageable.getSort().isSorted()) {
             boolean isAsc = pageable.getSort().stream().anyMatch(org.springframework.data.domain.Sort.Order::isAscending);
             activeWhitelists.sort((w1, w2) -> {
@@ -55,7 +54,6 @@ public class StoreServiceImpl implements StoreService {
         List<StoreResponse> resultList = new ArrayList<>();
         Set<Long> alreadyIncludedStoreIds = new HashSet<>();
 
-        // 1. Whitelist stores are ALWAYS placed at the top of results
         for (WhitelistStore ws : activeWhitelists) {
             Store whitelistedStore = ws.getStore();
             if (whitelistedStore != null) {
@@ -64,7 +62,6 @@ public class StoreServiceImpl implements StoreService {
             }
         }
 
-        // 2. Regular stores matching search criteria are appended next
         for (Store store : storePage.getContent()) {
             if (!alreadyIncludedStoreIds.contains(store.getId())) {
                 resultList.add(mapToResponse(store, false));

@@ -113,13 +113,11 @@ class StoreServiceTest {
         assertNotNull(response);
         assertEquals(2, response.getContent().size());
 
-        // Whitelist store must be at index 0
         StoreResponse topStore = response.getContent().get(0);
         assertEquals(20L, topStore.getId());
         assertTrue(topStore.isWhitelisted());
         assertEquals("Indomaret Tunjungan", topStore.getName());
 
-        // Regular search store must be at index 1
         StoreResponse secondStore = response.getContent().get(1);
         assertEquals(10L, secondStore.getId());
         assertFalse(secondStore.isWhitelisted());
@@ -130,7 +128,6 @@ class StoreServiceTest {
     @DisplayName("Search Stores: Whitelisted store in searched province is not duplicated")
     void testSearchStores_whitelistedStoreNotDuplicated() {
         Pageable pageable = PageRequest.of(0, 10);
-        // Whitelist store is also matched by search criteria
         Page<Store> regularPage = new PageImpl<>(List.of(regularStore, whitelistStore), pageable, 2);
 
         when(storeRepository.searchByProvinceName(eq(""), any(Pageable.class)))
@@ -141,7 +138,6 @@ class StoreServiceTest {
         PagedResponse<StoreResponse> response = storeService.searchStores("", pageable);
 
         assertNotNull(response);
-        // Should have exactly 2 stores, not 3 (no duplicate)
         assertEquals(2, response.getContent().size());
         assertEquals(20L, response.getContent().get(0).getId());
         assertTrue(response.getContent().get(0).isWhitelisted());

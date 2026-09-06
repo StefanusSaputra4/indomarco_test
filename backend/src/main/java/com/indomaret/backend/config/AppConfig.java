@@ -13,9 +13,7 @@ public class AppConfig {
     @Bean
     public ObjectMapper objectMapper() {
         ObjectMapper mapper = new ObjectMapper();
-        // Daftarkan modul tanggal/waktu Java 8 (LocalDateTime, LocalDate)
         mapper.registerModule(new JavaTimeModule());
-        // Tampilkan tanggal dalam format ISO-8601 string, bukan timestamp angka
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         return mapper;
     }

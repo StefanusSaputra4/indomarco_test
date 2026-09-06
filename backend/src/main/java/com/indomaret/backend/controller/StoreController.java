@@ -39,7 +39,6 @@ public class StoreController {
             @RequestParam(required = false, defaultValue = "desc") String sortDirection) {
 
         int pageSize = (size != null && size > 0) ? size : appProperties.getPagination().getDefaultPageSize();
-        // Batasi ukuran page maksimum dari konfigurasi
         if (pageSize > appProperties.getPagination().getMaxPageSize()) {
             pageSize = appProperties.getPagination().getMaxPageSize();
         }

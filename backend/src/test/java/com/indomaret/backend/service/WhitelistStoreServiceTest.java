@@ -117,7 +117,7 @@ class WhitelistStoreServiceTest {
         request.setStoreId(10L);
 
         when(appProperties.getWhitelist()).thenReturn(whitelistConfig);
-        when(whitelistStoreRepository.countByIsActiveTrue()).thenReturn(50L); // Max is 50
+        when(whitelistStoreRepository.countByIsActiveTrue()).thenReturn(50L);
 
         assertThrows(BadRequestException.class, () -> whitelistStoreService.addStoreToWhitelist(request, currentUser));
     }

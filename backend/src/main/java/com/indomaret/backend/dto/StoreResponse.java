@@ -20,7 +20,6 @@ public class StoreResponse {
     private String provinceName;
     private java.time.LocalDateTime createdAt;
     
-    // Flag penanda apakah toko ini muncul karena masuk daftar Whitelist
     @Builder.Default
     private boolean whitelisted = false;
 }
