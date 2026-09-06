@@ -148,8 +148,11 @@ Swagger UI dapat langsung diakses di browser:
    }
    ```
 2. Salin isi `token` dari response JSON.
-3. Klik tombol hijau **Authorize** di pojok kanan atas halaman Swagger, lalu paste token ke kolom yang tersedia dan klik **Authorize**.
-4. Semua endpoint terproteksi kini dapat dieksekusi langsung dari UI.
+3. Buka endpoint yang ingin diuji (misal: `GET /api/stores/search` atau `GET /api/branches`), klik **Try it out**.
+4. Masukkan token pada kolom header **`Authorization`** dengan format `Bearer <token>` (misal: `Bearer eyJhbGci...`).
+5. Klik tombol **Execute**.
+
+*(Alternatif: Tersedia juga file `backend/requests.http` untuk pengujian 1-klik langsung melalui ekstensi REST Client di VS Code atau HTTP Client di IntelliJ IDEA).*
 
 ---
 

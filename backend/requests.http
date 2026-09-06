@@ -1,0 +1,101 @@
+### ==============================================================================
+### Klik Indomaret - REST Client Request Collection (requests.http)
+### Dapat dijalankan langsung dari VS Code (REST Client Extension) atau IntelliJ IDEA
+### ==============================================================================
+
+@baseUrl = http://localhost:8080/api
+
+### 1. Autentikasi (Login Admin)
+# @name loginAdmin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "password123"
+}
+
+### Simpan token dari response login
+@authToken = {{loginAdmin.response.body.data.token}}
+
+### 2. Autentikasi (Login Staff)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "staff",
+  "password": "password123"
+}
+
+### 3. Pencarian Toko (Search Stores by Province with Whitelist Priority)
+GET {{baseUrl}}/stores/search?province=Jawa+Barat&page=0&size=10
+Authorization: Bearer {{authToken}}
+
+### 4. Detail Toko by ID
+GET {{baseUrl}}/stores/1
+Authorization: Bearer {{authToken}}
+
+### 5. Daftar Kantor Cabang Aktif
+GET {{baseUrl}}/branches
+Authorization: Bearer {{authToken}}
+
+### 6. Detail Kantor Cabang by ID
+GET {{baseUrl}}/branches/1
+Authorization: Bearer {{authToken}}
+
+### 7. Tambah Kantor Cabang Baru (Admin Only)
+# @name createBranch
+POST {{baseUrl}}/branches
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "provinceId": 1,
+  "name": "Cabang Tangerang Selatan",
+  "address": "Jl. Pahlawan Seribu No. 88, BSD City"
+}
+
+### 8. Update Kantor Cabang (Admin Only)
+PUT {{baseUrl}}/branches/1
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "provinceId": 1,
+  "name": "Cabang Bandung Barat",
+  "address": "Jl. Soekarno Hatta No. 500, Bandung"
+}
+
+### 9. Soft Delete Kantor Cabang (Admin Only)
+DELETE {{baseUrl}}/branches/4
+Authorization: Bearer {{authToken}}
+
+### 10. Daftar Toko Whitelist Aktif
+GET {{baseUrl}}/whitelist-stores
+Authorization: Bearer {{authToken}}
+
+### 11. Tambah Toko ke Whitelist (Maksimal 50 Toko)
+POST {{baseUrl}}/whitelist-stores
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "storeId": 2
+}
+
+### 12. Nonaktifkan Status Toko Whitelist
+PUT {{baseUrl}}/whitelist-stores/1
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "isActive": false
+}
+
+### 13. Daftar Seluruh Audit Log
+GET {{baseUrl}}/audit-logs?page=0&size=20
+Authorization: Bearer {{authToken}}
+
+### 14. Filter Audit Log Berdasarkan Entity BRANCH
+GET {{baseUrl}}/audit-logs/entity/BRANCH?page=0&size=10
+Authorization: Bearer {{authToken}}
