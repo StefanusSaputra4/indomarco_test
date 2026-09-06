@@ -1,227 +1,274 @@
-# DATABASE DESIGN DOCUMENTATION
-## Backend Developer Technical Assignment — Klik Indomaret
-
-**Kandidat**: Stefanus  
-**ID Pelamar**: OTH00060173  
-**Database**: PostgreSQL 14+  
-**ORM**: Spring Data JPA / Hibernate  
+# Klik Indomaret Store & Branch Management System - Database Design Documentation
+**Version:** 1.0  
+**Platform:** PostgreSQL 18 / Spring Data JPA / Hibernate  
+**Kandidat:** Stefanus  
+**ID Pelamar:** OTH00060173  
 
 ---
 
-## 1. Ringkasan Desain Arsitektur Data
+## 1. Pendahuluan
 
-Desain skema database ini dirancang untuk mendukung operasional ritel berskala besar (~20.000 data toko) dengan prioritas pada:
-1. **Integritas Relasional Bertingkat**: Mengikuti hierarki riil operasional ritel: `Province` $\rightarrow$ `Branch` $\rightarrow$ `Store`.
-2. **Optimasi Performa Query**: Mencegah bottleneck pembacaan data besar melalui indexing pada foreign keys dan kolom filter pencarian.
-3. **Pemisahan Entitas Dinamis**: Mengisolasi entitas `whitelist_stores` ke tabel tersendiri untuk mencegah mutasi atau locking berlebih pada tabel master `stores`.
-4. **Data Auditing & Compliance**: Merekam jejak perubahan data master secara historis (state lama vs state baru) dalam format JSON.
-5. **Soft Delete**: Memastikan histori data transaksi tidak terputus saat cabang atau toko dinonaktifkan.
+### 1.1 Tujuan
+Dokumen ini menyajikan rancangan arsitektur dan spesifikasi teknis basis data relasional untuk sistem **Klik Indomaret Store & Branch Management**. Basis data ini dioptimasi secara khusus untuk menampung data operasional gerai retail berjumlah besar (~20.000 toko), menjamin integritas relasional berjenjang (Provinsi $\rightarrow$ Cabang $\rightarrow$ Toko), memfasilitasi isolasi tabel toko Whitelist, mendukung penghapusan logis (*soft delete*), serta merekam histori perubahan data melalui *audit logging* dalam format JSON.
+
+### 1.2 Definisi & Istilah
+| Istilah | Deskripsi |
+| :--- | :--- |
+| **RDBMS** | Relational Database Management System (PostgreSQL 14+). |
+| **PK (Primary Key)** | Kunci primer unik untuk setiap baris data, bertipe `BIGSERIAL` (64-bit integer auto-increment). |
+| **FK (Foreign Key)** | Kunci asing penunjuk integritas relasi antar tabel dengan constraint referensial. |
+| **Index B-Tree** | Struktur data indeks pada kolom foreign key dan kolom pencarian untuk mempercepat waktu eksekusi kueri ($O(\log N)$). |
+| **Soft Delete** | Pola penghapusan dengan menandai flag `is_active = false` dan tanggal `deleted_at = NOW()` tanpa menghapus baris data secara permanen. |
+| **Audit Trail** | Jejak rekam perubahan data historis yang mencatat aktor (`user_id`), nama entitas, aksi, nilai sebelum mutasi (`old_value`), dan nilai sesudah mutasi (`new_value`). |
+| **N+1 Query Problem** | Kondisi latensi tinggi ketika pengambilan entitas induk memicu satu kueri terpisah per baris anak; dicegah dengan `JOIN FETCH`. |
 
 ---
 
 ## 2. Entity Relationship Diagram (ERD)
 
-```mermaid
-erDiagram
-    PROVINCES ||--o{ BRANCHES : "has many"
-    BRANCHES ||--o{ STORES : "has many"
-    STORES ||--o{ WHITELIST_STORES : "referenced by"
-    USERS ||--o{ AUDIT_LOGS : "performs"
+Berikut adalah diagram Entity Relationship Diagram (ERD) sistem basis data:
 
-    PROVINCES {
-        bigserial id PK
-        varchar(100) name "NOT NULL"
-        varchar(20) code "UNIQUE"
-        boolean is_active "DEFAULT TRUE"
-        timestamp deleted_at
-        timestamp created_at
-        timestamp updated_at
-    }
+![Entity Relationship Diagram (ERD)](ERD.drawio.png)
 
-    BRANCHES {
-        bigserial id PK
-        bigint province_id FK "NOT NULL"
-        varchar(100) name "NOT NULL"
-        varchar(255) address
-        boolean is_active "DEFAULT TRUE"
-        timestamp deleted_at
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    STORES {
-        bigserial id PK
-        bigint branch_id FK "NOT NULL"
-        varchar(150) name "NOT NULL"
-        varchar(255) address
-        boolean is_active "DEFAULT TRUE"
-        timestamp deleted_at
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    WHITELIST_STORES {
-        bigserial id PK
-        bigint store_id FK "NOT NULL"
-        boolean is_active "DEFAULT TRUE"
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    USERS {
-        bigserial id PK
-        varchar(100) username "NOT NULL, UNIQUE"
-        varchar(255) password_hash "NOT NULL"
-        varchar(50) role "DEFAULT 'STAFF'"
-        boolean is_active "DEFAULT TRUE"
-        timestamp created_at
-        timestamp updated_at
-    }
-
-    AUDIT_LOGS {
-        bigserial id PK
-        bigint user_id FK
-        varchar(100) entity_name "NOT NULL"
-        bigint entity_id "NOT NULL"
-        varchar(50) action "NOT NULL"
-        text old_value "JSON representation"
-        text new_value "JSON representation"
-        timestamp timestamp "NOT NULL"
-    }
-```
+### 2.1 Ringkasan Entitas dan Kardinalitas Relasi
+1. **`provinces` ke `branches` (1-to-Many / *has many*)**:  
+   Satu provinsi dapat memiliki banyak kantor cabang wilayah operasional (`province_id` pada `branches` mereferensikan `id` pada `provinces`).
+2. **`branches` ke `stores` (1-to-Many / *has many*)**:  
+   Satu kantor cabang menaungi banyak gerai toko retail (`branch_id` pada `stores` mereferensikan `id` pada `branches`).
+3. **`stores` ke `whitelist_stores` (1-to-One / *referenced by*)**:  
+   Satu gerai toko dapat didaftarkan paling banyak satu kali ke tabel promosi prioritas whitelist (`store_id` pada `whitelist_stores` mereferensikan `id` pada `stores` secara unik).
+4. **`users` ke `audit_logs` (1-to-Many / *performs*)**:  
+   Satu pengguna sistem dapat melakukan banyak mutasi data cabang yang tercatat secara kronologis di tabel `audit_logs` (`user_id` pada `audit_logs` mereferensikan `id` pada `users`).
 
 ---
 
-## 3. Spesifikasi Skema Tabel
+## 3. Data Dictionary / Spesifikasi Tabel
 
 ### 3.1 Tabel `provinces`
 Menyimpan data master provinsi wilayah administratif.
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik provinsi |
-| `name` | `VARCHAR(100)` | NOT NULL | Nama provinsi (misal: Jawa Barat) |
-| `code` | `VARCHAR(20)` | UNIQUE | Kode unik provinsi (misal: JB) |
-| `is_active` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Indikator status aktif |
-| `deleted_at` | `TIMESTAMP` | NULLABLE | Waktu soft delete |
-| `created_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pencatatan |
-| `updated_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pembaruan |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
+| 2 | `name` | VARCHAR(100) | YES | - | Nama provinsi (misal: "Jawa Barat") |
+| 3 | `code` | VARCHAR(20) | NO | NULL | Kode singkatan unik provinsi (misal: "JB") |
+| 4 | `is_active` | BOOLEAN | YES | TRUE | Status aktif provinsi |
+| 5 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penghapusan soft delete |
+| 6 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembuatan baris data |
+| 7 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan terakhir data |
+
+---
 
 ### 3.2 Tabel `branches`
-Menyimpan kantor cabang operasional wilayah Indomaret di bawah suatu provinsi.
+Menyimpan kantor cabang operasional yang membawahi gerai-gerai toko.
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik cabang |
-| `province_id` | `BIGINT` | NOT NULL, FK `provinces(id)` | Referensi ke provinsi |
-| `name` | `VARCHAR(100)` | NOT NULL | Nama cabang (misal: Cabang Bandung) |
-| `address` | `VARCHAR(255)` | NULLABLE | Alamat kantor cabang |
-| `is_active` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Indikator status aktif |
-| `deleted_at` | `TIMESTAMP` | NULLABLE | Waktu soft delete |
-| `created_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pencatatan |
-| `updated_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pembaruan |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
+| 2 | `province_id` | BIGINT | YES | - | Foreign Key ke `provinces(id)` |
+| 3 | `name` | VARCHAR(100) | YES | - | Nama cabang (misal: "Cabang Bandung") |
+| 4 | `address` | VARCHAR(255) | NO | NULL | Alamat fisik kantor cabang |
+| 5 | `is_active` | BOOLEAN | YES | TRUE | Flag aktif cabang (soft-delete target) |
+| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penonaktifan cabang |
+| 7 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembuatan cabang |
+| 8 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan data cabang |
+
+---
 
 ### 3.3 Tabel `stores`
-Menyimpan data fisik gerai/toko Indomaret yang bernaung di bawah suatu cabang operasional.
+Menyimpan master data gerai toko retail Indomaret (~20.000 records).
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik toko |
-| `branch_id` | `BIGINT` | NOT NULL, FK `branches(id)` | Referensi ke cabang operasional |
-| `name` | `VARCHAR(150)` | NOT NULL | Nama toko (misal: Indomaret Dago) |
-| `address` | `VARCHAR(255)` | NULLABLE | Alamat fisik toko |
-| `is_active` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Indikator status aktif |
-| `deleted_at` | `TIMESTAMP` | NULLABLE | Waktu soft delete |
-| `created_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pencatatan |
-| `updated_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pembaruan |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
+| 2 | `branch_id` | BIGINT | YES | - | Foreign Key ke `branches(id)` |
+| 3 | `name` | VARCHAR(150) | YES | - | Nama gerai toko (misal: "Indomaret Dago") |
+| 4 | `address` | VARCHAR(255) | NO | NULL | Alamat fisik gerai toko |
+| 5 | `is_active` | BOOLEAN | YES | TRUE | Status aktif toko |
+| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu soft delete |
+| 7 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pendaftaran toko |
+| 8 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu mutasi toko |
+
+---
 
 ### 3.4 Tabel `whitelist_stores`
-Menyimpan daftar toko yang mendapatkan status whitelist prioritas.
+Menyimpan relasi gerai toko prioritas/whitelist promosi dengan kuota terbatasi.
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik entri whitelist |
-| `store_id` | `BIGINT` | NOT NULL, FK `stores(id)` | Referensi ke toko yang di-whitelist |
-| `is_active` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Status keaktifan whitelist |
-| `created_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu toko masuk whitelist |
-| `updated_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu pembaruan status |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
+| 2 | `store_id` | BIGINT | YES | - | Foreign Key unik ke `stores(id)` |
+| 3 | `is_active` | BOOLEAN | YES | TRUE | Status aktif keanggotaan whitelist |
+| 4 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu penambahan ke whitelist |
+| 5 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan |
+
+---
 
 ### 3.5 Tabel `users`
-Menyimpan kredensial pengguna dan wewenang otorisasi sistem.
+Menyimpan akun pengguna terautentikasi untuk otorisasi akses API.
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik pengguna |
-| `username` | `VARCHAR(100)` | NOT NULL, UNIQUE | Username login |
-| `password_hash` | `VARCHAR(255)` | NOT NULL | Password terenkripsi BCrypt |
-| `role` | `VARCHAR(50)` | NOT NULL, DEFAULT 'STAFF' | Peran pengguna (ADMIN / STAFF) |
-| `is_active` | `BOOLEAN` | NOT NULL, DEFAULT TRUE | Status akun |
-| `created_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu registrasi |
-| `updated_at` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu perubahan akun |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
+| 2 | `username` | VARCHAR(100) | YES | - | Username unik (misal: "admin") |
+| 3 | `password_hash` | VARCHAR(255) | YES | - | Hash sandi tersandi BCrypt ($2a$) |
+| 4 | `role` | VARCHAR(50) | YES | 'STAFF' | Peran otorisasi ('ADMIN', 'STAFF') |
+| 5 | `is_active` | BOOLEAN | YES | TRUE | Status keaktifan akun pengguna |
+| 6 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu registrasi akun |
+| 7 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan akun |
+
+---
 
 ### 3.6 Tabel `audit_logs`
-Menyimpan riwayat perubahan data master untuk audit compliance.
+Menyimpan catatan riwayat seluruh mutasi data (`CREATE`, `UPDATE`, `DELETE`) pada entitas bisnis.
 
-| Kolom | Tipe Data | Constraint | Keterangan |
-|---|---|---|---|
-| `id` | `BIGSERIAL` | PRIMARY KEY | Identifikasi unik log |
-| `user_id` | `BIGINT` | NULLABLE, FK `users(id)` | Operator pelaku perubahan |
-| `entity_name` | `VARCHAR(100)` | NOT NULL | Nama entitas (misal: 'Branch') |
-| `entity_id` | `BIGINT` | NOT NULL | ID entitas yang dimodifikasi |
-| `action` | `VARCHAR(50)` | NOT NULL | Jenis aksi (`CREATE`, `UPDATE`, `DELETE`) |
-| `old_value` | `TEXT` | NULLABLE | Snapshot JSON data sebelum perubahan |
-| `new_value` | `TEXT` | NULLABLE | Snapshot JSON data sesudah perubahan |
-| `timestamp` | `TIMESTAMP` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | Waktu eksekusi aksi |
+| No | Field | Type | Mandatory | Default | Description |
+| :---: | :--- | :--- | :---: | :--- | :--- |
+| 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key log |
+| 2 | `user_id` | BIGINT | NO | NULL | Foreign Key ke `users(id)` aktor |
+| 3 | `entity_name` | VARCHAR(100) | YES | - | Nama entitas yang berubah (misal: "Branch") |
+| 4 | `entity_id` | BIGINT | YES | - | ID entitas yang dimutasi |
+| 5 | `action` | VARCHAR(50) | YES | - | Tipe mutasi: 'CREATE', 'UPDATE', 'DELETE' |
+| 6 | `old_value` | TEXT | NO | NULL | Snapshot JSON data sebelum perubahan |
+| 7 | `new_value` | TEXT | NO | NULL | Snapshot JSON data sesudah perubahan |
+| 8 | `timestamp` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu eksekusi mutasi |
 
 ---
 
-## 4. Strategi Indexing untuk Skala Data Besar
+## 4. Strategi Indexing & Optimasi Query
 
-Mengingat volume data retail mencapai puluhan ribu entri, index ditambahkan secara spesifik:
+Untuk menjamin performa tinggi pada volume data toko retail (~20.000 gerai), diterapkan skema indeks strategis:
 
+### 4.1 Daftar Indeks Database
+| No | Nama Indeks | Tabel | Kolom | Tipe Indeks | Tujuan Optimasi |
+| :---: | :--- | :--- | :--- | :---: | :--- |
+| 1 | `idx_provinces_name` | `provinces` | `name` | B-Tree | Mempercepat filter pencarian nama provinsi |
+| 2 | `idx_provinces_is_active` | `provinces` | `is_active` | B-Tree | Filter baris provinsi yang berstatus aktif |
+| 3 | `idx_branches_province_id` | `branches` | `province_id` | B-Tree | Mempercepat query join cabang ke provinsi |
+| 4 | `idx_branches_is_active` | `branches` | `is_active` | B-Tree | Memfilter cabang aktif pada pencarian toko |
+| 5 | `idx_stores_branch_id` | `stores` | `branch_id` | B-Tree | Menghilangkan full table scan saat join relasi |
+| 6 | `idx_stores_is_active` | `stores` | `is_active` | B-Tree | Filter cepat hanya untuk toko yang aktif |
+| 7 | `idx_whitelist_store_id` | `whitelist_stores` | `store_id` | B-Tree (Unique) | Mempercepat join dan mencegah duplikasi whitelist |
+| 8 | `idx_audit_logs_user_id` | `audit_logs` | `user_id` | B-Tree | Mempercepat kueri pelacakan audit per pengguna |
+| 9 | `idx_audit_logs_timestamp`| `audit_logs` | `timestamp` | B-Tree | Optimasi pengurutan kronologis log |
+
+### 4.2 Mitigasi N+1 Query Problem
+Pada implementasi Spring Data JPA, pemanggilan entitas toko beserta relasi cabangnya dioptimasi dengan klausa kustom `JOIN FETCH`:
 ```sql
--- 1. Index pencarian nama provinsi (mendukung operasi ILIKE / case-insensitive search)
-CREATE INDEX idx_provinces_name ON provinces(name);
+SELECT DISTINCT s FROM Store s 
+JOIN FETCH s.branch b 
+JOIN FETCH b.province p 
+WHERE s.isActive = true 
+  AND b.isActive = true 
+  AND LOWER(p.name) LIKE LOWER(CONCAT('%', :provinceName, '%'))
+```
+Dengan strategi ini, Hibernate hanya mengeksekusi **1 kueri SQL tunggal** dengan `INNER JOIN` bertingkat, bukan mengeksekusi 1 kueri utama ditambah ribuan sub-kueri untuk setiap cabang.
 
--- 2. Index foreign keys untuk relasi JOIN bertingkat
-CREATE INDEX idx_branches_province_id ON branches(province_id);
-CREATE INDEX idx_stores_branch_id ON stores(branch_id);
+---
 
--- 3. Index pencarian toko whitelist
-CREATE INDEX idx_whitelist_stores_store_id ON whitelist_stores(store_id);
+## 5. Mekanisme Soft Delete & Audit Trail
 
--- 4. Index pencarian audit log berdasarkan entitas dan ID
-CREATE INDEX idx_audit_logs_entity ON audit_logs(entity_name, entity_id);
+### 5.1 Alur Logika Soft Delete
+Operasi `DELETE /api/branches/{id}` tidak menjalankan perintah `DELETE FROM branches`, melainkan:
+1. Membaca record cabang yang sedang aktif.
+2. Menyimpan snapshot representasi JSON entitas ke variabel `old_value`.
+3. Memperbarui kolom `is_active = false` dan `deleted_at = CURRENT_TIMESTAMP`.
+4. Menyimpan record event ke tabel `audit_logs` dengan aksi `DELETE`.
+5. Toko-toko di bawah cabang non-aktif secara otomatis terfilter keluar dari hasil kueri pencarian reguler.
+
+### 5.2 Skema Payload JSON Audit Log
+Data perubahan pada kolom `old_value` dan `new_value` diformat dalam struktur JSON standar:
+```json
+{
+  "id": 1,
+  "name": "Cabang Bandung Utama",
+  "address": "Jl. Soekarno Hatta No. 200, Bandung",
+  "provinceId": 1,
+  "provinceName": "Jawa Barat",
+  "isActive": true
+}
 ```
 
-### Manfaat Indexing:
-- **Index FK (`idx_stores_branch_id` & `idx_branches_province_id`)**: Mengurangi kompleksitas join dari Full Table Scan ($O(N)$) menjadi Index Scan ($O(\log N)$).
-- **Index Audit (`idx_audit_logs_entity`)**: Mempercepat penarikan riwayat perubahan entitas tertentu secara instan tanpa memindai seluruh tabel log.
-
 ---
 
-## 5. Keputusan Desain Penting (Design Decisions & Trade-offs)
+## 6. Skrip DDL Database (PostgreSQL)
 
-### 5.1 Rationale Pemisahan Tabel `whitelist_stores`
-**Alternatif Desain A**: Menambahkan kolom `is_whitelist BOOLEAN` pada tabel `stores`.  
-**Keputusan yang Dipilih**: Tabel terpisah `whitelist_stores`.  
-**Alasan Teknis**:
-1. **Isolasi Mutasi**: Perubahan status whitelist sering terjadi untuk kebutuhan promosi. Pemisahan tabel mencegah lock baris pada tabel master `stores` yang sering dibaca.
-2. **Efisiensi Query Whitelist**: Query penarikan toko whitelist hanya memindai tabel kecil ($\le 50$ baris) alih-alih memfilter kolom flag pada $20.000$ baris tabel `stores`.
-3. **Fleksibilitas Atribut Masa Depan**: Tabel terpisah memudahkan penambahan atribut khusus whitelist di kemudian hari (misal: `expired_at`, `priority_weight`, `notes`) tanpa mengubah skema tabel `stores`.
+```sql
+-- 1. Tabel Master Provinsi
+CREATE TABLE provinces (
+    id BIGSERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(20) UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
-### 5.2 Strategi Soft Delete
-Entitas master (`provinces`, `branches`, `stores`) menerapkan pola **Soft Delete**:
-- Tidak mengeksekusi perintah SQL `DELETE FROM table`.
-- Mengubah `is_active = false` dan mengisi `deleted_at = CURRENT_TIMESTAMP`.
-- Seluruh query operasional JPA menerapkan klausul filter otomatis:
-  ```sql
-  WHERE is_active = true AND deleted_at IS NULL
-  ```
-- **Tujuan**: Menjaga integritas data historis audit, laporan penjualan masa lalu, dan menghindari error *foreign key constraint violation*.
+-- 2. Tabel Master Cabang
+CREATE TABLE branches (
+    id BIGSERIAL PRIMARY KEY,
+    province_id BIGINT NOT NULL REFERENCES provinces(id),
+    name VARCHAR(100) NOT NULL,
+    address VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 
-### 5.3 Strategi Audit Logging
-Pencatatan dilakukan secara terstruktur pada tingkat Service Layer:
-- Saat terjadi mutasi (`CREATE`, `UPDATE`, `DELETE`), service mengambil snapshot objek DTO.
-- Snapshot diubah menjadi representasi string JSON oleh Jackson `ObjectMapper`.
-- Disimpan secara transaksional ke tabel `audit_logs` bersamaan dengan ID user yang terotentikasi dari konteks Spring Security.
+-- 3. Tabel Master Toko
+CREATE TABLE stores (
+    id BIGSERIAL PRIMARY KEY,
+    branch_id BIGINT NOT NULL REFERENCES branches(id),
+    name VARCHAR(150) NOT NULL,
+    address VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Tabel Whitelist Toko
+CREATE TABLE whitelist_stores (
+    id BIGSERIAL PRIMARY KEY,
+    store_id BIGINT NOT NULL UNIQUE REFERENCES stores(id),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 5. Tabel Pengguna (Otentikasi & Otorisasi)
+CREATE TABLE users (
+    id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'STAFF',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Tabel Audit Log
+CREATE TABLE audit_logs (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT REFERENCES users(id),
+    entity_name VARCHAR(100) NOT NULL,
+    entity_id BIGINT NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indeks Performa
+CREATE INDEX idx_provinces_name ON provinces(name);
+CREATE INDEX idx_provinces_is_active ON provinces(is_active);
+CREATE INDEX idx_branches_province_id ON branches(province_id);
+CREATE INDEX idx_branches_is_active ON branches(is_active);
+CREATE INDEX idx_stores_branch_id ON stores(branch_id);
+CREATE INDEX idx_stores_is_active ON stores(is_active);
+CREATE INDEX idx_whitelist_store_id ON whitelist_stores(store_id);
+CREATE INDEX idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp);
+```
