@@ -1,51 +1,45 @@
 # Klik Indomaret Store & Branch Management System - Database Design Documentation
 **Version:** 1.0  
-**Platform:** PostgreSQL 18 / Spring Data JPA / Hibernate  
-**Kandidat:** Stefanus  
-**ID Pelamar:** OTH00060173  
+**Platform:** PostgreSQL 18  
+**Author:** Stefanus (OTH00060173)  
 
 ---
 
 ## 1. Pendahuluan
 
 ### 1.1 Tujuan
-Dokumen ini menyajikan rancangan arsitektur dan spesifikasi teknis basis data relasional untuk sistem **Klik Indomaret Store & Branch Management**. Basis data ini dioptimasi secara khusus untuk menampung data operasional gerai retail berjumlah besar (~20.000 toko), menjamin integritas relasional berjenjang (Provinsi $\rightarrow$ Cabang $\rightarrow$ Toko), memfasilitasi isolasi tabel toko Whitelist, mendukung penghapusan logis (*soft delete*), serta merekam histori perubahan data melalui *audit logging* dalam format JSON.
+Dokumen ini menjelaskan rancangan arsitektur basis data (database design) untuk sistem Klik Indomaret Store & Branch Management. Basis data ini dirancang untuk menampung master data wilayah (provinsi dan cabang), data operasional gerai retail (~20.000 toko), relasi toko whitelist promosi, penanganan soft delete cabang, serta pencatatan audit log riwayat mutasi data.
 
 ### 1.2 Definisi & Istilah
 | Istilah | Deskripsi |
 | :--- | :--- |
-| **RDBMS** | Relational Database Management System (PostgreSQL 14+). |
-| **PK (Primary Key)** | Kunci primer unik untuk setiap baris data, bertipe `BIGSERIAL` (64-bit integer auto-increment). |
-| **FK (Foreign Key)** | Kunci asing penunjuk integritas relasi antar tabel dengan constraint referensial. |
-| **Index B-Tree** | Struktur data indeks pada kolom foreign key dan kolom pencarian untuk mempercepat waktu eksekusi kueri ($O(\log N)$). |
-| **Soft Delete** | Pola penghapusan dengan menandai flag `is_active = false` dan tanggal `deleted_at = NOW()` tanpa menghapus baris data secara permanen. |
-| **Audit Trail** | Jejak rekam perubahan data historis yang mencatat aktor (`user_id`), nama entitas, aksi, nilai sebelum mutasi (`old_value`), dan nilai sesudah mutasi (`new_value`). |
-| **N+1 Query Problem** | Kondisi latensi tinggi ketika pengambilan entitas induk memicu satu kueri terpisah per baris anak; dicegah dengan `JOIN FETCH`. |
+| **RDBMS** | Relational Database Management System (PostgreSQL 14+) |
+| **PK (Primary Key)** | Kunci primer unik bertipe `BIGSERIAL` (64-bit integer auto-increment) |
+| **FK (Foreign Key)** | Kunci asing penunjuk integritas relasi antar tabel |
+| **Index B-Tree** | Struktur indeks pada kolom kunci dan pencarian untuk mempercepat query |
+| **Soft Delete** | Penonaktifan record dengan flag `is_active = false` dan tanggal `deleted_at` tanpa menghapus baris data fisik |
+| **Audit Trail** | Jejak riwayat perubahan data (CREATE, UPDATE, DELETE) yang mencatat user, snapshot nilai lama, dan nilai baru |
 
 ---
 
 ## 2. Entity Relationship Diagram (ERD)
 
-Berikut adalah diagram Entity Relationship Diagram (ERD) sistem basis data:
+Berikut adalah diagram Entity Relationship Diagram (ERD) relasi antar tabel:
 
 ![Entity Relationship Diagram (ERD)](ERD.drawio.png)
 
-### 2.1 Ringkasan Entitas dan Kardinalitas Relasi
-1. **`provinces` ke `branches` (1-to-Many / *has many*)**:  
-   Satu provinsi dapat memiliki banyak kantor cabang wilayah operasional (`province_id` pada `branches` mereferensikan `id` pada `provinces`).
-2. **`branches` ke `stores` (1-to-Many / *has many*)**:  
-   Satu kantor cabang menaungi banyak gerai toko retail (`branch_id` pada `stores` mereferensikan `id` pada `branches`).
-3. **`stores` ke `whitelist_stores` (1-to-One / *referenced by*)**:  
-   Satu gerai toko dapat didaftarkan paling banyak satu kali ke tabel promosi prioritas whitelist (`store_id` pada `whitelist_stores` mereferensikan `id` pada `stores` secara unik).
-4. **`users` ke `audit_logs` (1-to-Many / *performs*)**:  
-   Satu pengguna sistem dapat melakukan banyak mutasi data cabang yang tercatat secara kronologis di tabel `audit_logs` (`user_id` pada `audit_logs` mereferensikan `id` pada `users`).
+### 2.1 Penjelasan Relasi Antar Tabel
+1. **`provinces` ke `branches` (1 to Many)**: Satu provinsi dapat memiliki banyak kantor cabang wilayah (`branches.province_id` mereferensikan `provinces.id`).
+2. **`branches` ke `stores` (1 to Many)**: Satu kantor cabang membawahi banyak gerai toko retail (`stores.branch_id` mereferensikan `branches.id`).
+3. **`stores` ke `whitelist_stores` (1 to 1)**: Satu gerai toko hanya dapat didaftarkan maksimal satu kali pada whitelist promosi (`whitelist_stores.store_id` bersifat unik).
+4. **`users` ke `audit_logs` (1 to Many)**: Satu akun pengguna dapat melakukan banyak transaksi mutasi data cabang yang tercatat di tabel `audit_logs`.
 
 ---
 
-## 3. Data Dictionary / Spesifikasi Tabel
+## 3. Spesifikasi Tabel (Data Dictionary)
 
-### 3.1 Tabel `provinces`
-Menyimpan data master provinsi wilayah administratif.
+### 3.1 Tabel `provinces` (Master Provinsi)
+Menyimpan master data wilayah provinsi administratif.
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
@@ -53,30 +47,30 @@ Menyimpan data master provinsi wilayah administratif.
 | 2 | `name` | VARCHAR(100) | YES | - | Nama provinsi (misal: "Jawa Barat") |
 | 3 | `code` | VARCHAR(20) | NO | NULL | Kode singkatan unik provinsi (misal: "JB") |
 | 4 | `is_active` | BOOLEAN | YES | TRUE | Status aktif provinsi |
-| 5 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penghapusan soft delete |
-| 6 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembuatan baris data |
+| 5 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penonaktifan (soft delete) |
+| 6 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembuatan data |
 | 7 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan terakhir data |
 
 ---
 
-### 3.2 Tabel `branches`
-Menyimpan kantor cabang operasional yang membawahi gerai-gerai toko.
+### 3.2 Tabel `branches` (Master Cabang)
+Menyimpan data kantor cabang operasional yang membawahi gerai retail.
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
 | 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
 | 2 | `province_id` | BIGINT | YES | - | Foreign Key ke `provinces(id)` |
-| 3 | `name` | VARCHAR(100) | YES | - | Nama cabang (misal: "Cabang Bandung") |
-| 4 | `address` | VARCHAR(255) | NO | NULL | Alamat fisik kantor cabang |
-| 5 | `is_active` | BOOLEAN | YES | TRUE | Flag aktif cabang (soft-delete target) |
-| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penonaktifan cabang |
+| 3 | `name` | VARCHAR(100) | YES | - | Nama kantor cabang (misal: "Cabang Bandung") |
+| 4 | `address` | VARCHAR(255) | NO | NULL | Alamat kantor cabang |
+| 5 | `is_active` | BOOLEAN | YES | TRUE | Flag status aktif cabang |
+| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penonaktifan cabang (soft delete) |
 | 7 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembuatan cabang |
 | 8 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan data cabang |
 
 ---
 
-### 3.3 Tabel `stores`
-Menyimpan master data gerai toko retail Indomaret (~20.000 records).
+### 3.3 Tabel `stores` (Master Toko)
+Menyimpan master data gerai toko retail Indomaret (~20.000 data).
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
@@ -85,14 +79,14 @@ Menyimpan master data gerai toko retail Indomaret (~20.000 records).
 | 3 | `name` | VARCHAR(150) | YES | - | Nama gerai toko (misal: "Indomaret Dago") |
 | 4 | `address` | VARCHAR(255) | NO | NULL | Alamat fisik gerai toko |
 | 5 | `is_active` | BOOLEAN | YES | TRUE | Status aktif toko |
-| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu soft delete |
+| 6 | `deleted_at` | TIMESTAMP | NO | NULL | Waktu penonaktifan toko (soft delete) |
 | 7 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pendaftaran toko |
-| 8 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu mutasi toko |
+| 8 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan data toko |
 
 ---
 
-### 3.4 Tabel `whitelist_stores`
-Menyimpan relasi gerai toko prioritas/whitelist promosi dengan kuota terbatasi.
+### 3.4 Tabel `whitelist_stores` (Toko Whitelist)
+Menyimpan relasi gerai toko prioritas promosi yang dibatasi kuota.
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
@@ -100,84 +94,70 @@ Menyimpan relasi gerai toko prioritas/whitelist promosi dengan kuota terbatasi.
 | 2 | `store_id` | BIGINT | YES | - | Foreign Key unik ke `stores(id)` |
 | 3 | `is_active` | BOOLEAN | YES | TRUE | Status aktif keanggotaan whitelist |
 | 4 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu penambahan ke whitelist |
-| 5 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan |
+| 5 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan whitelist |
 
 ---
 
-### 3.5 Tabel `users`
-Menyimpan akun pengguna terautentikasi untuk otorisasi akses API.
+### 3.5 Tabel `users` (Pengguna Sistem)
+Menyimpan akun pengguna untuk otentikasi login dan otorisasi API.
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
 | 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key |
 | 2 | `username` | VARCHAR(100) | YES | - | Username unik (misal: "admin") |
-| 3 | `password_hash` | VARCHAR(255) | YES | - | Hash sandi tersandi BCrypt ($2a$) |
-| 4 | `role` | VARCHAR(50) | YES | 'STAFF' | Peran otorisasi ('ADMIN', 'STAFF') |
-| 5 | `is_active` | BOOLEAN | YES | TRUE | Status keaktifan akun pengguna |
+| 3 | `password_hash` | VARCHAR(255) | YES | - | Hash password BCrypt |
+| 4 | `role` | VARCHAR(50) | YES | 'STAFF' | Peran pengguna ('ADMIN', 'STAFF') |
+| 5 | `is_active` | BOOLEAN | YES | TRUE | Status aktif akun pengguna |
 | 6 | `created_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu registrasi akun |
 | 7 | `updated_at` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu pembaruan akun |
 
 ---
 
-### 3.6 Tabel `audit_logs`
-Menyimpan catatan riwayat seluruh mutasi data (`CREATE`, `UPDATE`, `DELETE`) pada entitas bisnis.
+### 3.6 Tabel `audit_logs` (Riwayat Perubahan Data)
+Menyimpan jejak rekaman setiap mutasi cabang (`CREATE`, `UPDATE`, `DELETE`).
 
 | No | Field | Type | Mandatory | Default | Description |
 | :---: | :--- | :--- | :---: | :--- | :--- |
 | 1 | `id` | BIGSERIAL | YES | Auto-increment | Primary Key log |
-| 2 | `user_id` | BIGINT | NO | NULL | Foreign Key ke `users(id)` aktor |
-| 3 | `entity_name` | VARCHAR(100) | YES | - | Nama entitas yang berubah (misal: "Branch") |
-| 4 | `entity_id` | BIGINT | YES | - | ID entitas yang dimutasi |
-| 5 | `action` | VARCHAR(50) | YES | - | Tipe mutasi: 'CREATE', 'UPDATE', 'DELETE' |
-| 6 | `old_value` | TEXT | NO | NULL | Snapshot JSON data sebelum perubahan |
-| 7 | `new_value` | TEXT | NO | NULL | Snapshot JSON data sesudah perubahan |
-| 8 | `timestamp` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu eksekusi mutasi |
+| 2 | `user_id` | BIGINT | NO | NULL | Foreign Key ke `users(id)` pengguna pelaku |
+| 3 | `entity_name` | VARCHAR(100) | YES | - | Nama entitas yang dimutasi (`Branch`) |
+| 4 | `entity_id` | BIGINT | YES | - | ID baris data yang dimutasi |
+| 5 | `action` | VARCHAR(50) | YES | - | Tipe aksi: 'CREATE', 'UPDATE', 'DELETE' |
+| 6 | `old_value` | TEXT | NO | NULL | JSON data sebelum perubahan |
+| 7 | `new_value` | TEXT | NO | NULL | JSON data setelah perubahan |
+| 8 | `timestamp` | TIMESTAMP | YES | CURRENT_TIMESTAMP | Waktu transaksi dilakukan |
 
 ---
 
-## 4. Strategi Indexing & Optimasi Query
+## 4. Indexing Database
 
-Untuk menjamin performa tinggi pada volume data toko retail (~20.000 gerai), diterapkan skema indeks strategis:
+Untuk menjaga performa query pencarian dan join pada volume data toko retail (~20.000 data), diterapkan skema indeks:
 
-### 4.1 Daftar Indeks Database
-| No | Nama Indeks | Tabel | Kolom | Tipe Indeks | Tujuan Optimasi |
+| No | Nama Index | Tabel | Kolom | Tipe Indeks | Keterangan |
 | :---: | :--- | :--- | :--- | :---: | :--- |
-| 1 | `idx_provinces_name` | `provinces` | `name` | B-Tree | Mempercepat filter pencarian nama provinsi |
-| 2 | `idx_provinces_is_active` | `provinces` | `is_active` | B-Tree | Filter baris provinsi yang berstatus aktif |
-| 3 | `idx_branches_province_id` | `branches` | `province_id` | B-Tree | Mempercepat query join cabang ke provinsi |
-| 4 | `idx_branches_is_active` | `branches` | `is_active` | B-Tree | Memfilter cabang aktif pada pencarian toko |
-| 5 | `idx_stores_branch_id` | `stores` | `branch_id` | B-Tree | Menghilangkan full table scan saat join relasi |
-| 6 | `idx_stores_is_active` | `stores` | `is_active` | B-Tree | Filter cepat hanya untuk toko yang aktif |
-| 7 | `idx_whitelist_store_id` | `whitelist_stores` | `store_id` | B-Tree (Unique) | Mempercepat join dan mencegah duplikasi whitelist |
-| 8 | `idx_audit_logs_user_id` | `audit_logs` | `user_id` | B-Tree | Mempercepat kueri pelacakan audit per pengguna |
-| 9 | `idx_audit_logs_timestamp`| `audit_logs` | `timestamp` | B-Tree | Optimasi pengurutan kronologis log |
-
-### 4.2 Mitigasi N+1 Query Problem
-Pada implementasi Spring Data JPA, pemanggilan entitas toko beserta relasi cabangnya dioptimasi dengan klausa kustom `JOIN FETCH`:
-```sql
-SELECT DISTINCT s FROM Store s 
-JOIN FETCH s.branch b 
-JOIN FETCH b.province p 
-WHERE s.isActive = true 
-  AND b.isActive = true 
-  AND LOWER(p.name) LIKE LOWER(CONCAT('%', :provinceName, '%'))
-```
-Dengan strategi ini, Hibernate hanya mengeksekusi **1 kueri SQL tunggal** dengan `INNER JOIN` bertingkat, bukan mengeksekusi 1 kueri utama ditambah ribuan sub-kueri untuk setiap cabang.
+| 1 | `idx_provinces_name` | `provinces` | `name` | B-Tree | Mempercepat pencarian nama provinsi |
+| 2 | `idx_provinces_is_active` | `provinces` | `is_active` | B-Tree | Filter cepat provinsi aktif |
+| 3 | `idx_branches_province_id` | `branches` | `province_id` | B-Tree | Mempercepat join cabang ke provinsi |
+| 4 | `idx_branches_is_active` | `branches` | `is_active` | B-Tree | Filter cabang aktif |
+| 5 | `idx_stores_branch_id` | `stores` | `branch_id` | B-Tree | Mempercepat join toko ke cabang |
+| 6 | `idx_stores_is_active` | `stores` | `is_active` | B-Tree | Filter toko aktif |
+| 7 | `idx_whitelist_store_id` | `whitelist_stores` | `store_id` | B-Tree (Unique) | Mempercepat pengecekan keanggotaan whitelist |
+| 8 | `idx_audit_logs_user_id` | `audit_logs` | `user_id` | B-Tree | Mempercepat pencarian log per pengguna |
+| 9 | `idx_audit_logs_timestamp`| `audit_logs` | `timestamp` | B-Tree | Pengurutan kronologis riwayat mutasi |
 
 ---
 
-## 5. Mekanisme Soft Delete & Audit Trail
+## 5. Alur Soft Delete & Audit Log
 
-### 5.1 Alur Logika Soft Delete
-Operasi `DELETE /api/branches/{id}` tidak menjalankan perintah `DELETE FROM branches`, melainkan:
-1. Membaca record cabang yang sedang aktif.
-2. Menyimpan snapshot representasi JSON entitas ke variabel `old_value`.
-3. Memperbarui kolom `is_active = false` dan `deleted_at = CURRENT_TIMESTAMP`.
-4. Menyimpan record event ke tabel `audit_logs` dengan aksi `DELETE`.
-5. Toko-toko di bawah cabang non-aktif secara otomatis terfilter keluar dari hasil kueri pencarian reguler.
+### 5.1 Alur Soft Delete Cabang
+Operasi penonaktifan cabang (`DELETE /api/branches/{id}`) tidak menghapus data secara fisik, melainkan:
+1. Membaca record cabang aktif dari database.
+2. Mengubah nilai kolom `is_active = false` dan mengisi `deleted_at = CURRENT_TIMESTAMP`.
+3. Menyimpan riwayat perubahan ke tabel `audit_logs` dengan aksi `DELETE`, mencatat snapshot data cabang lama pada kolom `old_value`.
+4. Toko-toko di bawah cabang non-aktif otomatis terfilter keluar dari hasil pencarian toko aktif.
 
-### 5.2 Skema Payload JSON Audit Log
-Data perubahan pada kolom `old_value` dan `new_value` diformat dalam struktur JSON standar:
+### 5.2 Format JSON Audit Log
+Data perubahan pada kolom `old_value` dan `new_value` dicatat dalam format JSON:
 ```json
 {
   "id": 1,
@@ -191,7 +171,7 @@ Data perubahan pada kolom `old_value` dan `new_value` diformat dalam struktur JS
 
 ---
 
-## 6. Skrip DDL Database (PostgreSQL)
+## 6. Script DDL Database (PostgreSQL)
 
 ```sql
 -- 1. Tabel Master Provinsi

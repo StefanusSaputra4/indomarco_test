@@ -1,45 +1,41 @@
 # Klik Indomaret Store & Branch Management API - Technical Documentation
 **Version:** 1.0  
-**Platform:** Spring Boot 4 / PostgreSQL 18 / Spring Security (JWT)  
-**Kandidat:** Stefanus  
-**ID Pelamar:** OTH00060173  
+**Platform:** Klik Indomaret Backend API  
+**Author:** Stefanus (OTH00060173)  
 
 ---
 
 ## 1. Pendahuluan
 
 ### 1.1 Tujuan
-Dokumen ini menjelaskan spesifikasi teknis dan alur integrasi RESTful API untuk sistem **Klik Indomaret Store & Branch Management**. Sistem ini dirancang untuk memfasilitasi pengelolaan master wilayah (Provinsi dan Cabang), pengelolaan gerai toko retail berskala besar (~20.000 toko), mekanisme prioritas toko Whitelist pada hasil pencarian, fitur soft-delete cabang, serta pencatatan audit log otomatis atas setiap mutasi data.
+Dokumen ini menjelaskan spesifikasi teknis dan alur integrasi REST API untuk kebutuhan Sistem Manajemen Toko & Kantor Cabang Klik Indomaret. Sistem ini mencakup pengelolaan kantor cabang wilayah operasional, master data toko retail (~20.000 gerai), pencarian toko dengan filter provinsi dan sorting tanggal pembuatan, prioritas toko whitelist, mekanisme soft-delete cabang, serta pencatatan audit log setiap mutasi data.
 
 ### 1.2 Definisi & Istilah
 | Istilah | Deskripsi |
 | :--- | :--- |
-| **API** | Application Programming Interface berbasis arsitektur RESTful JSON. |
-| **JWT** | JSON Web Token berstandar RFC 7519 yang digunakan sebagai token autentikasi stateless (HMAC-SHA512). |
-| **Whitelist Store** | Toko promosi/strategis khusus yang wajib selalu muncul pada urutan teratas hasil pencarian tanpa memandang filter provinsi. |
-| **Quota Limit** | Batas maksimal jumlah toko yang dapat didaftarkan ke dalam whitelist secara bersamaan (default: 50 toko, dikonfigurasi via `application.yml`). |
-| **Soft Delete** | Penghapusan secara logis dengan mengubah flag `is_active = false` dan mengisi `deleted_at = NOW()` tanpa menghapus baris data fisik di database. |
-| **Audit Log** | Pencatatan otomatis ke tabel `audit_logs` saat mutasi data (CREATE, UPDATE, DELETE) terjadi, merekam aktor pengguna, data lama (`old_value`), dan data baru (`new_value`) dalam format JSON. |
-| **N+1 Query** | Masalah performa ORM di mana pemanggilan relasi entitas memicu kueri tambahan untuk setiap baris data; dimitigasi dengan `JOIN FETCH`. |
+| **API** | Application Programming Interface berbasis RESTful JSON |
+| **JWT** | JSON Web Token berstandar RFC 7519 sebagai token otentikasi stateless |
+| **Whitelist Store** | Toko promosi/prioritas khusus yang otomatis tampil pada urutan teratas hasil pencarian |
+| **Quota Limit** | Batas maksimal jumlah toko yang dapat didaftarkan ke whitelist (default: 50 toko) |
+| **Soft Delete** | Penonaktifan data cabang secara logis (is_active = false) tanpa menghapus fisik baris database |
+| **Audit Log** | Pencatatan riwayat perubahan data (CREATE, UPDATE, DELETE) pada entitas cabang |
 
 ---
 
 ## 2. Persiapan Integrasi
 
-Sebelum integrasi, pengguna atau tim pengembang dapat menggunakan acuan konfigurasi berikut:
+Sebelum integrasi, pengguna / developer dapat mengakses konfigurasi berikut:
 1. **API Base URL**: `http://localhost:8080/api`
-2. **Interactive Documentation (Swagger UI)**: `http://localhost:8080/swagger-ui/index.html`
-3. **OpenAPI Specification JSON**: `http://localhost:8080/v3/api-docs`
-4. **Kredensial Default**:
+2. **Swagger UI**: `http://localhost:8080/swagger-ui/index.html`
+3. **OpenAPI JSON**: `http://localhost:8080/v3/api-docs`
+4. **Akun Default**:
    - Username: `admin`
    - Password: `password123`
-5. **Autentikasi**: Seluruh endpoint terproteksi wajib menyertakan header HTTP:  
+5. **Header Otentikasi**: Seluruh endpoint terproteksi wajib menyertakan header:  
    `Authorization: Bearer <TOKEN_JWT>`
 
-### 2.1 Standar Struktur Respons API
-Seluruh respons API dibungkus dalam format standar seragam:
-
-#### Format Respons Sukses
+### 2.1 Standar Respons API
+Format respons standar sukses:
 ```json
 {
   "success": true,
@@ -49,68 +45,53 @@ Seluruh respons API dibungkus dalam format standar seragam:
 }
 ```
 
-#### Format Respons Gagal / Error
+Format respons standar gagal:
 ```json
 {
   "success": false,
-  "message": "Deskripsi pesan error atau alasan kegagalan",
+  "message": "Deskripsi alasan kegagalan",
   "data": null,
   "timestamp": "2026-09-06T10:00:00.000"
 }
 ```
 
-#### Format Respons Paginasi Standar (`PagedResponse<T>`)
-```json
-{
-  "success": true,
-  "message": "Pencarian berhasil",
-  "data": {
-    "content": [ ... ],
-    "page": 0,
-    "size": 20,
-    "totalElements": 150,
-    "totalPages": 8,
-    "last": false
-  },
-  "timestamp": "2026-09-06T10:00:00.000"
-}
-```
-
-### 2.2 Standar Kode Status HTTP
+### 2.2 Kode Status HTTP
 | Kode HTTP | Status | Deskripsi |
 | :--- | :--- | :--- |
-| **200** | OK | Permintaan berhasil diproses. |
-| **201** | Created | Data baru berhasil dibuat ke sistem. |
-| **400** | Bad Request | Parameter request tidak valid atau melebihi kuota konfigurasi. |
-| **401** | Unauthorized | Token JWT tidak disertakan, tidak valid/rusak, kadaluarsa, atau kredensial login salah. Dikembalikan dalam format seragam JSON `ApiResponse`. |
-| **403** | Forbidden | Akses ditolak karena kredensial tidak memiliki wewenang atau hak akses yang mencukupi. Dikembalikan dalam format seragam JSON `ApiResponse`. |
-| **404** | Not Found | Entitas atau data yang dicari tidak ditemukan. |
-| **409** | Conflict | Terjadi duplikasi data unik (misal toko sudah ada di whitelist). |
-| **500** | Internal Server Error | Terjadi kendala tidak terduga pada server/database. |
+| **200** | OK | Permintaan berhasil diproses |
+| **201** | Created | Data baru berhasil disimpan ke sistem |
+| **400** | Bad Request | Parameter tidak valid atau melebihi batas kuota |
+| **401** | Unauthorized | Token JWT tidak disertakan, tidak valid, atau login gagal |
+| **403** | Forbidden | Akun tidak memiliki hak akses yang mencukupi |
+| **404** | Not Found | Data yang dicari tidak ditemukan |
+| **409** | Conflict | Data sudah ada sebelumnya (duplikasi unik) |
+| **500** | Internal Server Error | Terjadi kendala internal server |
 
 ---
 
 ## 3. Authentication
 
 ### 3.1 Login API
-Digunakan untuk memvalidasi kredensial pengguna dan menerbitkan JSON Web Token (JWT) yang valid selama 60 menit.
+Digunakan untuk memvalidasi kredensial pengguna dan mendapatkan access token JWT yang valid selama 60 menit.
 
-**Method:** `POST`  
-**Endpoint:** `/api/auth/login`  
-**Akses:** Publik  
+**Method:** POST  
+**Endpoint:**  
+`/api/auth/login`  
 
-#### Header Request:
-```http
-Content-Type: application/json
+**Header Request:**
+```json
+{
+  "Content-Type": "application/json"
+}
 ```
 
-#### Field Description:
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `username` | YES | String | Nama akun pengguna terdaftar (contoh: `admin`) |
-| `password` | YES | String | Kata sandi akun (contoh: `password123`) |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `username` | YES | Nama akun pengguna terdaftar (contoh: `admin`) |
+| `password` | YES | Kata sandi akun (contoh: `password123`) |
 
-#### Request Body:
+**Request Body:**
 ```json
 {
   "username": "admin",
@@ -118,7 +99,7 @@ Content-Type: application/json
 }
 ```
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -134,7 +115,7 @@ Content-Type: application/json
 }
 ```
 
-#### Failed Response (401 Unauthorized):
+**Failed Response:**
 ```json
 {
   "success": false,
@@ -148,40 +129,29 @@ Content-Type: application/json
 
 ## 4. Store Management
 
-### 4.1 Search Stores (with Whitelist Merge & Pagination)
-Digunakan untuk mencari gerai toko berdasarkan nama provinsi dengan pagination efisien dan penggabungan toko Whitelist otomatis.
+### 4.1 Search Store by Province
+Digunakan untuk mencari daftar toko retail berdasarkan nama provinsi dengan fitur pagination dan sorting created date (asc/desc). Toko yang aktif pada daftar whitelist akan otomatis disematkan pada urutan teratas hasil pencarian.
 
-**Logika Whitelist Priority Merge:**
-1. Mengambil seluruh toko aktif yang berada di bawah cabang provinsi tujuan (menggunakan query `JOIN FETCH` agar bebas dari masalah N+1 Query).
-2. Mengambil seluruh toko aktif di tabel `whitelist_stores`.
-3. Toko whitelist yang belum masuk pada hasil filter provinsi disisipkan di posisi prioritas teratas dengan atribut `"whitelisted": true`.
-4. Toko reguler hasil pencarian provinsi diberi penanda `"whitelisted": false` (atau `true` jika kebetulan memang terdaftar di whitelist).
+**Method:** GET  
+**Endpoint:**  
+`/api/stores/search?province=Jawa%20Barat&page=0&size=10&sortDirection=desc`  
 
-**Method:** `GET`  
-**Endpoint:** `/api/stores/search`  
-**Akses:** Terproteksi (Bearer Token)  
-
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Field Description (Query Parameters):
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `province` | NO | String | Nama provinsi yang dicari (contoh: `Jawa Barat`, case-insensitive) |
-| `page` | NO | Integer | Nomor halaman dimulai dari indeks `0` (default: `0`) |
-| `size` | NO | Integer | Jumlah data per halaman (default: `20`, maksimum: `100`) |
-| `sortDirection` | NO | String | Arah pengurutan berdasarkan tanggal pembuatan (`createdAt`): `asc` (terlama) atau `desc` (terbaru) (default: `desc`) |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `province` | NO | Filter nama provinsi toko (contoh: `Jawa Barat`, case-insensitive) |
+| `page` | NO | Nomor halaman, dimulai dari `0` (default: `0`) |
+| `size` | NO | Jumlah data per halaman (default: `20`, maksimum: `100`) |
+| `sortDirection` | NO | Arah urutan created date: `asc` (terlama) atau `desc` (terbaru) (default: `desc`) |
 
-#### Request Example:
-```http
-GET /api/stores/search?province=Jawa%20Barat&page=0&size=10&sortDirection=desc HTTP/1.1
-Host: localhost:8080
-Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
-```
-
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -235,23 +205,25 @@ Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
 ---
 
 ### 4.2 Get Store Detail by ID
-Digunakan untuk mengambil informasi detail dari satu gerai toko berdasarkan ID unik.
+Digunakan untuk mengambil data lengkap gerai toko berdasarkan ID.
 
-**Method:** `GET`  
-**Endpoint:** `/api/stores/{id}`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** GET  
+**Endpoint:**  
+`/api/stores/{id}`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Field Description (Path Variable):
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | YES | Long | ID unik entitas Store |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `id` | YES | ID unik toko (path variable) |
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -271,7 +243,7 @@ Authorization: Bearer <TOKEN>
 }
 ```
 
-#### Failed Response (404 Not Found):
+**Failed Response:**
 ```json
 {
   "success": false,
@@ -285,31 +257,26 @@ Authorization: Bearer <TOKEN>
 
 ## 5. Branch Management
 
-### 5.1 List All Active Branches
-Mengambil seluruh daftar cabang yang berstatus aktif (`is_active = true`). Dapat diurutkan berdasarkan tanggal pembuatan (`createdAt`).
+### 5.1 List Active Branches
+Digunakan untuk mengambil seluruh daftar kantor cabang yang berstatus aktif. Data dapat diurutkan berdasarkan created date (asc/desc).
 
-**Method:** `GET`  
-**Endpoint:** `/api/branches`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** GET  
+**Endpoint:**  
+`/api/branches?sortDirection=desc`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Field Description (Query Parameters):
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `sortDirection` | NO | String | Urutan berdasarkan waktu pembuatan (`createdAt`): `asc` (terlama) atau `desc` (terbaru) (default: `asc`) |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `sortDirection` | NO | Urutan created date: `asc` (terlama) atau `desc` (terbaru) (default: `asc`) |
 
-#### Request Example:
-```http
-GET /api/branches?sortDirection=desc HTTP/1.1
-Host: localhost:8080
-Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
-```
-
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -340,27 +307,29 @@ Authorization: Bearer eyJhbGciOiJIUzUxMiJ9...
 
 ---
 
-### 5.2 Create New Branch
-Menambahkan entitas cabang baru ke sistem. Operasi ini secara otomatis mencatat riwayat ke tabel `audit_logs`.
+### 5.2 Create Branch
+Digunakan untuk menambahkan kantor cabang baru. Perubahan otomatis dicatat ke audit log.
 
-**Method:** `POST`  
-**Endpoint:** `/api/branches`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** POST  
+**Endpoint:**  
+`/api/branches`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>",
+  "Content-Type": "application/json"
+}
 ```
 
-#### Field Description:
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `name` | YES | String | Nama kantor cabang (maksimal 100 karakter, tidak boleh kosong) |
-| `provinceId` | YES | Long | ID provinsi tempat cabang berada (harus valid) |
-| `address` | NO | String | Alamat fisik kantor cabang (maksimal 255 karakter) |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `name` | YES | Nama kantor cabang (maksimal 100 karakter) |
+| `provinceId` | YES | ID provinsi tempat kantor cabang berada |
+| `address` | NO | Alamat fisik kantor cabang (maksimal 255 karakter) |
 
-#### Request Body:
+**Request Body:**
 ```json
 {
   "name": "Cabang Semarang Baru",
@@ -369,7 +338,7 @@ Content-Type: application/json
 }
 ```
 
-#### Success Response (201 Created):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -390,26 +359,28 @@ Content-Type: application/json
 ---
 
 ### 5.3 Update Branch
-Memperbarui data cabang yang sudah ada. Operasi ini secara otomatis membandingkan data lama dan mencatat data baru ke tabel `audit_logs`.
+Digunakan untuk memperbarui informasi kantor cabang yang sudah ada. Perubahan otomatis dicatat ke audit log.
 
-**Method:** `PUT`  
-**Endpoint:** `/api/branches/{id}`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** PUT  
+**Endpoint:**  
+`/api/branches/{id}`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>",
+  "Content-Type": "application/json"
+}
 ```
 
-#### Field Description:
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `name` | YES | String | Nama kantor cabang |
-| `provinceId` | YES | Long | ID provinsi |
-| `address` | NO | String | Alamat fisik kantor cabang |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `name` | YES | Nama kantor cabang |
+| `provinceId` | YES | ID provinsi |
+| `address` | NO | Alamat kantor cabang |
 
-#### Request Body:
+**Request Body:**
 ```json
 {
   "name": "Cabang Bandung Utama",
@@ -418,7 +389,7 @@ Content-Type: application/json
 }
 ```
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -439,23 +410,25 @@ Content-Type: application/json
 ---
 
 ### 5.4 Delete Branch (Soft Delete)
-Menonaktifkan entitas cabang secara logis (`is_active = false`, `deleted_at = NOW()`) tanpa menghapus record fisik di database, serta mencatat event `DELETE` ke tabel `audit_logs`.
+Digunakan untuk menonaktifkan cabang secara logis (soft delete). Flag `is_active` diubah menjadi `false` dan diisi tanggal `deleted_at`. Perubahan dicatat ke audit log.
 
-**Method:** `DELETE`  
-**Endpoint:** `/api/branches/{id}`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** DELETE  
+**Endpoint:**  
+`/api/branches/{id}`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Field Description (Path Variable):
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | YES | Long | ID cabang yang akan dinonaktifkan |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `id` | YES | ID cabang yang akan dinonaktifkan (path variable) |
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -469,19 +442,21 @@ Authorization: Bearer <TOKEN>
 
 ## 6. Whitelist Store Management
 
-### 6.1 List Active Whitelist Stores
-Mengambil seluruh gerai toko yang sedang aktif di tabel `whitelist_stores`.
+### 6.1 List Whitelist Stores
+Digunakan untuk menampilkan seluruh gerai toko yang aktif dalam daftar whitelist prioritas.
 
-**Method:** `GET`  
-**Endpoint:** `/api/whitelist`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** GET  
+**Endpoint:**  
+`/api/whitelist`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -504,32 +479,34 @@ Authorization: Bearer <TOKEN>
 
 ---
 
-### 6.2 Add Store to Whitelist (with Quota Validation)
-Mendaftarkan toko ke tabel whitelist. Sistem memvalidasi bahwa total toko whitelist aktif belum melampaui batasan kuota konfigurasi (`app.whitelist.max-store-count: 50`).
+### 6.2 Add Store to Whitelist
+Digunakan untuk menambahkan gerai toko ke dalam daftar whitelist. Sistem membatasi jumlah maksimal toko whitelist sesuai konfigurasi (default: 50 toko).
 
-**Method:** `POST`  
-**Endpoint:** `/api/whitelist`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** POST  
+**Endpoint:**  
+`/api/whitelist`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
-Content-Type: application/json
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>",
+  "Content-Type": "application/json"
+}
 ```
 
-#### Field Description:
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `storeId` | YES | Long | ID toko master yang akan dimasukkan ke whitelist |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `storeId` | YES | ID toko yang akan didaftarkan ke whitelist |
 
-#### Request Body:
+**Request Body:**
 ```json
 {
   "storeId": 2
 }
 ```
 
-#### Success Response (201 Created):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -548,7 +525,7 @@ Content-Type: application/json
 }
 ```
 
-#### Failed Response - Quota Exceeded (400 Bad Request):
+**Failed Response - Kuota Penuh:**
 ```json
 {
   "success": false,
@@ -558,7 +535,7 @@ Content-Type: application/json
 }
 ```
 
-#### Failed Response - Duplicate (409 Conflict):
+**Failed Response - Duplikasi Toko:**
 ```json
 {
   "success": false,
@@ -571,23 +548,25 @@ Content-Type: application/json
 ---
 
 ### 6.3 Remove Store from Whitelist
-Menghapus toko dari daftar whitelist aktif.
+Digunakan untuk mengeluarkan toko dari daftar whitelist aktif.
 
-**Method:** `DELETE`  
-**Endpoint:** `/api/whitelist/{id}`  
-**Akses:** Terproteksi (Bearer Token)  
+**Method:** DELETE  
+**Endpoint:**  
+`/api/whitelist/{id}`  
 
-#### Header Request:
-```http
-Authorization: Bearer <TOKEN>
+**Header Request:**
+```json
+{
+  "Authorization": "Bearer <TOKEN_JWT>"
+}
 ```
 
-#### Field Description (Path Variable):
-| Field | Mandatory | Type | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | YES | Long | ID entitas WhitelistStore yang akan dihapus |
+**Field Description:**
+| Field | Mandatory | Description |
+| :--- | :--- | :--- |
+| `id` | YES | ID entitas whitelist yang akan dihapus (path variable) |
 
-#### Success Response (200 OK):
+**Success Response:**
 ```json
 {
   "success": true,
@@ -599,21 +578,21 @@ Authorization: Bearer <TOKEN>
 
 ---
 
-## 7. Audit Logging System
+## 7. Audit Log
 
-Sistem secara transparan mencatat rekaman audit ke tabel `audit_logs` pada setiap mutasi cabang (`CREATE`, `UPDATE`, `DELETE`).
+Sistem mencatat riwayat perubahan data secara otomatis ke tabel `audit_logs` pada setiap aksi mutasi cabang (`CREATE`, `UPDATE`, `DELETE`).
 
-### 7.1 Struktur Data Audit Log
-| Field | Tipe Data | Deskripsi |
+### 7.1 Struktur Kolom Audit Log
+| Field | Tipe Data | Description |
 | :--- | :--- | :--- |
-| `id` | Bigserial | ID unik rekaman log |
+| `id` | Bigserial | ID unik riwayat log |
 | `user_id` | Bigint | ID pengguna yang melakukan aksi |
-| `entity_name` | Varchar(100) | Nama entitas yang dimutasi (`Branch`) |
-| `entity_id` | Bigint | ID entitas yang dimutasi |
-| `action` | Varchar(50) | Jenis mutasi (`CREATE`, `UPDATE`, `DELETE`) |
-| `old_value` | Text (JSON) | Keadaan data sebelum operasi dijalankan (`null` saat CREATE) |
-| `new_value` | Text (JSON) | Keadaan data sesudah operasi dijalankan (`null` saat DELETE) |
-| `timestamp` | Timestamp | Waktu tepat terjadinya operasi (UTC/WIB) |
+| `entity_name` | Varchar(100) | Nama entitas yang berubah (`Branch`) |
+| `entity_id` | Bigint | ID data yang dimutasi |
+| `action` | Varchar(50) | Tipe mutasi: `CREATE`, `UPDATE`, `DELETE` |
+| `old_value` | Text (JSON) | Nilai sebelum perubahan (`null` saat CREATE) |
+| `new_value` | Text (JSON) | Nilai setelah perubahan (`null` saat DELETE) |
+| `timestamp` | Timestamp | Waktu operasi dijalankan |
 
 ### 7.2 Contoh Rekaman Audit Log (Update Branch)
 ```json
