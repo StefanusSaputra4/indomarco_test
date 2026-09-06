@@ -1,5 +1,8 @@
 package com.indomaret.backend.config;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,12 +35,21 @@ public class SwaggerConfig {
                 Parameter headerParam = new HeaderParameter()
                         .name("Authorization")
                         .description("Token JWT (Format: Bearer <token>)")
-                        .required(false)
+                        .required(true)
                         .schema(new StringSchema().example("Bearer eyJhbGciOi..."));
-                operation.addParametersItem(headerParam);
+
+                // Taruh parameter Authorization di paling atas (index 0)
+                List<Parameter> existingParams = operation.getParameters();
+                List<Parameter> updatedParams = new ArrayList<>();
+                updatedParams.add(headerParam);
+                if (existingParams != null) {
+                    updatedParams.addAll(existingParams);
+                }
+                operation.setParameters(updatedParams);
             }
             return operation;
         };
     }
 }
+
 
