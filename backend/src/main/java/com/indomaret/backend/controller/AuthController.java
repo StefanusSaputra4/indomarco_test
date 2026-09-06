@@ -25,7 +25,9 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login")
-    @Operation(summary = "Login User", description = "Autentikasi dengan username dan password untuk mendapatkan JWT Token")
+    @Operation(summary = "Login User", 
+               description = "Autentikasi dengan username dan password untuk mendapatkan JWT Token (Public endpoint - tidak memerlukan token)", 
+               security = {})
     public ResponseEntity<ApiResponse<LoginResponse>> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
         return ResponseEntity.ok(ApiResponse.ok("Login berhasil", response));
