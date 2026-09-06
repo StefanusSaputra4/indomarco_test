@@ -111,6 +111,7 @@ public class BranchServiceImpl implements BranchService {
                 .provinceId(branch.getProvince() != null ? branch.getProvince().getId() : null)
                 .provinceName(branch.getProvince() != null ? branch.getProvince().getName() : null)
                 .isActive(branch.getIsActive())
+                .createdAt(branch.getCreatedAt())
                 .build();
     }
 }

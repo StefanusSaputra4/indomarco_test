@@ -37,11 +37,20 @@ public class StoreServiceImpl implements StoreService {
         String query = provinceName != null ? provinceName.trim() : "";
 
         Page<Store> storePage = storeRepository.searchByProvinceName(query, pageable);
-        List<WhitelistStore> activeWhitelists = whitelistStoreRepository.findAllActiveWithDetails();
+        List<WhitelistStore> activeWhitelists = new ArrayList<>(whitelistStoreRepository.findAllActiveWithDetails());
 
-        Set<Long> whitelistedStoreIds = activeWhitelists.stream()
-                .map(ws -> ws.getStore().getId())
-                .collect(Collectors.toSet());
+        // Urutkan toko whitelist sesuai arah sort yang diminta (default created date)
+        if (pageable.getSort() != null && pageable.getSort().isSorted()) {
+            boolean isAsc = pageable.getSort().stream().anyMatch(org.springframework.data.domain.Sort.Order::isAscending);
+            activeWhitelists.sort((w1, w2) -> {
+                java.time.LocalDateTime d1 = (w1.getStore() != null) ? w1.getStore().getCreatedAt() : null;
+                java.time.LocalDateTime d2 = (w2.getStore() != null) ? w2.getStore().getCreatedAt() : null;
+                if (d1 == null && d2 == null) return 0;
+                if (d1 == null) return 1;
+                if (d2 == null) return -1;
+                return isAsc ? d1.compareTo(d2) : d2.compareTo(d1);
+            });
+        }
 
         List<StoreResponse> resultList = new ArrayList<>();
         Set<Long> alreadyIncludedStoreIds = new HashSet<>();
@@ -97,6 +106,7 @@ public class StoreServiceImpl implements StoreService {
                         ? store.getBranch().getProvince().getId() : null)
                 .provinceName(store.getBranch() != null && store.getBranch().getProvince() != null 
                         ? store.getBranch().getProvince().getName() : null)
+                .createdAt(store.getCreatedAt())
                 .whitelisted(isWhitelisted)
                 .build();
     }

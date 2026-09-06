@@ -27,16 +27,16 @@ Content-Type: application/json
   "password": "password123"
 }
 
-### 3. Pencarian Toko (Search Stores by Province with Whitelist Priority)
-GET {{baseUrl}}/stores/search?province=Jawa+Barat&page=0&size=10
+### 3. Pencarian Toko (Search Stores by Province with Whitelist Priority & Created Date Sort)
+GET {{baseUrl}}/stores/search?province=Jawa+Barat&page=0&size=10&sortDirection=desc
 Authorization: Bearer {{authToken}}
 
 ### 4. Detail Toko by ID
 GET {{baseUrl}}/stores/1
 Authorization: Bearer {{authToken}}
 
-### 5. Daftar Kantor Cabang Aktif
-GET {{baseUrl}}/branches
+### 5. Daftar Kantor Cabang Aktif (Sort Created Date: desc / asc)
+GET {{baseUrl}}/branches?sortDirection=desc
 Authorization: Bearer {{authToken}}
 
 ### 6. Detail Kantor Cabang by ID

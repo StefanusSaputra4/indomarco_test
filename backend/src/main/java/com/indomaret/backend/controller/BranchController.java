@@ -82,9 +82,26 @@ public class BranchController {
     }
 
     @GetMapping
-    @Operation(summary = "Get All Branches", description = "Mengambil seluruh daftar cabang yang aktif")
-    public ResponseEntity<ApiResponse<List<BranchResponse>>> getAllActiveBranches() {
+    @Operation(summary = "Get All Branches", description = "Mengambil seluruh daftar cabang yang aktif. Dapat diurutkan berdasarkan created date (asc/desc).")
+    public ResponseEntity<ApiResponse<List<BranchResponse>>> getAllActiveBranches(
+            @io.swagger.v3.oas.annotations.Parameter(description = "Urutan created date: 'asc' (terlama) atau 'desc' (terbaru). Default: 'asc'")
+            @org.springframework.web.bind.annotation.RequestParam(required = false, defaultValue = "asc") String sortDirection) {
         List<BranchResponse> response = branchService.getAllActiveBranches();
+        if ("desc".equalsIgnoreCase(sortDirection)) {
+            response.sort((b1, b2) -> {
+                if (b1.getCreatedAt() == null && b2.getCreatedAt() == null) return 0;
+                if (b1.getCreatedAt() == null) return 1;
+                if (b2.getCreatedAt() == null) return -1;
+                return b2.getCreatedAt().compareTo(b1.getCreatedAt());
+            });
+        } else if ("asc".equalsIgnoreCase(sortDirection)) {
+            response.sort((b1, b2) -> {
+                if (b1.getCreatedAt() == null && b2.getCreatedAt() == null) return 0;
+                if (b1.getCreatedAt() == null) return 1;
+                if (b2.getCreatedAt() == null) return -1;
+                return b1.getCreatedAt().compareTo(b2.getCreatedAt());
+            });
+        }
         return ResponseEntity.ok(ApiResponse.ok("Daftar cabang aktif", response));
     }
 }

@@ -30,11 +30,13 @@ public class StoreController {
 
     @GetMapping("/search")
     @Operation(summary = "Search Store by Province", 
-               description = "Mencari toko berdasarkan nama provinsi dengan pagination. Hasil otomatis menggabungkan toko Whitelist.")
+               description = "Mencari toko berdasarkan nama provinsi dengan pagination. Hasil otomatis menggabungkan toko Whitelist dan dapat diurutkan berdasarkan created date (asc/desc).")
     public ResponseEntity<ApiResponse<PagedResponse<StoreResponse>>> searchStores(
             @RequestParam(required = false, defaultValue = "") String province,
             @RequestParam(required = false, defaultValue = "0") int page,
-            @RequestParam(required = false) Integer size) {
+            @RequestParam(required = false) Integer size,
+            @io.swagger.v3.oas.annotations.Parameter(description = "Urutan created date: 'asc' (terlama) atau 'desc' (terbaru). Default: 'desc'")
+            @RequestParam(required = false, defaultValue = "desc") String sortDirection) {
 
         int pageSize = (size != null && size > 0) ? size : appProperties.getPagination().getDefaultPageSize();
         // Batasi ukuran page maksimum dari konfigurasi
@@ -42,7 +44,10 @@ public class StoreController {
             pageSize = appProperties.getPagination().getMaxPageSize();
         }
 
-        Pageable pageable = PageRequest.of(page, pageSize);
+        org.springframework.data.domain.Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection) 
+                ? org.springframework.data.domain.Sort.Direction.ASC 
+                : org.springframework.data.domain.Sort.Direction.DESC;
+        Pageable pageable = PageRequest.of(page, pageSize, org.springframework.data.domain.Sort.by(direction, "createdAt"));
         PagedResponse<StoreResponse> result = storeService.searchStores(province, pageable);
 
         return ResponseEntity.ok(ApiResponse.ok("Pencarian toko berhasil", result));

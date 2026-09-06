@@ -17,4 +17,6 @@ public class BranchResponse {
     private Long provinceId;
     private String provinceName;
     private Boolean isActive;
+    private java.time.LocalDateTime createdAt;
 }
+
