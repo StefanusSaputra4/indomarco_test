@@ -28,7 +28,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/whitelist-stores")
+@RequestMapping({"/api/whitelist-stores", "/api/whitelist"})
 @RequiredArgsConstructor
 @Tag(name = "Whitelist Store Management", description = "Endpoint untuk mendaftarkan dan mengelola toko whitelist")
 public class WhitelistStoreController {
