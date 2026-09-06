@@ -174,8 +174,22 @@ Swagger UI dapat langsung diakses di browser:
 
 ## Pengujian & Verifikasi
 
-### 1. Script Otomatis End-to-End (`test-e2e.ps1`)
-Di folder root tersedia script otomatis PowerShell yang menjalankan seluruh skenario pengujian secara berurutan:
+### 1. Automated Unit Tests (JUnit 5 & Mockito)
+Aplikasi telah dilengkapi **17 skenario unit test otomatis** yang menguji seluruh lapisan logika bisnis krusial:
+- **`StoreServiceTest`**: Validasi pencarian per provinsi, pagination, penggabungan toko Whitelist di posisi teratas (`whitelisted: true`), serta pencegahan duplikasi data toko.
+- **`BranchServiceTest`**: Validasi operasi create, update, mekanisme **soft delete** (`is_active = false`, `deleted_at = now`), serta verifikasi pemanggilan `AuditLogService`.
+- **`WhitelistStoreServiceTest`**: Validasi penegakan batas kuota konfigurasi (`max-store-count: 50`), proteksi toko ganda (anti-duplicate), toggle status aktif/nonaktif, dan penghapusan whitelist.
+- **`AuthServiceTest`**: Validasi autentikasi kredensial, verifikasi password BCrypt, penerbitan JWT token, dan penanganan kegagalan autentikasi.
+
+Jalankan seluruh test suite dengan perintah:
+```bash
+cd backend
+./mvnw test        # Linux / macOS
+.\mvnw.cmd test    # Windows
+```
+
+### 2. Script Otomatis End-to-End (`test-e2e.ps1`)
+Di folder root tersedia script otomatis PowerShell yang menjalankan seluruh skenario pengujian secara berurutan terhadap server yang sedang aktif:
 - Login dan perolehan token JWT
 - Pencarian toko dan verifikasi penyisipan toko Whitelist
 - Update cabang dan verifikasi pencatatan audit log
@@ -187,7 +201,7 @@ Jalankan dengan perintah:
 .\test-e2e.ps1
 ```
 
-### 2. Postman Collection
+### 3. Postman Collection
 Tersedia file Postman Collection siap pakai di root proyek:
 - `indomaret_postman_collection.json`
 
@@ -197,6 +211,14 @@ File ini dapat langsung di-import ke Postman. Seluruh request telah dikelompokka
 
 ## Dokumen Lampiran Resmi
 
-Dokumen teknis pelengkap dengan format standar pelaporan resmi telah disertakan di root repositori:
-1. **`Stefanus_OTH00060173_API Documentation.pdf`**: Spesifikasi lengkap setiap endpoint REST API, struktur payload JSON request/response, dan daftar status code HTTP.
-2. **`Stefanus_OTH00060173_Database Design Documentation.pdf`**: Diagram ERD visual lengkap, kamus data (*data dictionary*) untuk seluruh tabel, rincian indeks B-Tree, serta skrip DDL SQL.
+Dokumen teknis pelengkap dengan format standar pelaporan resmi (PKP Standard) telah disertakan di root repositori dengan dua format penamaan (sesuai panduan pengumpulan dan kode referensi pelamar):
+
+1. **API Documentation**:
+   - `StefanusSaputra_BackendDeveloper_APIDocumentation.pdf` *(Format penamaan resmi tugas)*
+   - `Stefanus_OTH00060173_API Documentation.pdf` *(Format dengan ID Pelamar)*
+   - *Isi dokumen:* Spesifikasi lengkap setiap endpoint REST API, struktur payload JSON request/response, contoh request/response, dan daftar status code HTTP.
+
+2. **Database Design Documentation**:
+   - `StefanusSaputra_BackendDeveloper_DatabaseDesignDocumentation.pdf` *(Format penamaan resmi tugas)*
+   - `Stefanus_OTH00060173_Database Design Documentation.pdf` *(Format dengan ID Pelamar)*
+   - *Isi dokumen:* Diagram Entity Relationship Diagram (ERD) visual resolusi tinggi, kamus data (*data dictionary*) untuk seluruh 6 tabel, rincian indeks B-Tree, serta skrip DDL SQL.

@@ -24,9 +24,10 @@ backend/.mvn/wrapper/maven-wrapper.jar
 .env
 application-local.yml
 
-# Assignment and Docs
-*.pdf
-*Dokumentasi*
+# Assignment and Reference Docs (Exclude source materials)
+*Assignment*.pdf
+PKP*.pdf
+*Dokumentasi*.pdf
 *.docx
 
 # OS Generated

@@ -46,17 +46,20 @@ public class StoreServiceImpl implements StoreService {
         List<StoreResponse> resultList = new ArrayList<>();
         Set<Long> alreadyIncludedStoreIds = new HashSet<>();
 
-        for (Store store : storePage.getContent()) {
-            boolean isWhitelisted = whitelistedStoreIds.contains(store.getId());
-            resultList.add(mapToResponse(store, isWhitelisted));
-            alreadyIncludedStoreIds.add(store.getId());
-        }
-
+        // 1. Whitelist stores are ALWAYS placed at the top of results
         for (WhitelistStore ws : activeWhitelists) {
             Store whitelistedStore = ws.getStore();
-            if (!alreadyIncludedStoreIds.contains(whitelistedStore.getId())) {
-                resultList.add(0, mapToResponse(whitelistedStore, true));
+            if (whitelistedStore != null) {
+                resultList.add(mapToResponse(whitelistedStore, true));
                 alreadyIncludedStoreIds.add(whitelistedStore.getId());
+            }
+        }
+
+        // 2. Regular stores matching search criteria are appended next
+        for (Store store : storePage.getContent()) {
+            if (!alreadyIncludedStoreIds.contains(store.getId())) {
+                resultList.add(mapToResponse(store, false));
+                alreadyIncludedStoreIds.add(store.getId());
             }
         }
 

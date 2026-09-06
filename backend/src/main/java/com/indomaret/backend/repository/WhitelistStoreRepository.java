@@ -16,7 +16,9 @@ public interface WhitelistStoreRepository extends JpaRepository<WhitelistStore, 
            "JOIN FETCH ws.store s " +
            "JOIN FETCH s.branch b " +
            "JOIN FETCH b.province p " +
-           "WHERE ws.isActive = true AND s.isActive = true AND s.deletedAt IS NULL")
+           "WHERE ws.isActive = true AND s.isActive = true AND s.deletedAt IS NULL " +
+           "AND b.isActive = true AND b.deletedAt IS NULL " +
+           "AND p.isActive = true AND p.deletedAt IS NULL")
     List<WhitelistStore> findAllActiveWithDetails();
 
     boolean existsByStoreIdAndIsActiveTrue(Long storeId);
